@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "common.h"
 
 typedef unsigned char uint8_t;
 typedef unsigned int  uint32_t;
@@ -54,6 +55,7 @@ void kernel_main() {
     for (int i = 0; s[i] != '\0'; i++) {
         putchar(s[i]);
     }
+    printf("Hello, %s\n", "World!");
 
     // 無限ループ
     for (;;) {

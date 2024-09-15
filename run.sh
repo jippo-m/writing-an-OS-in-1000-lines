@@ -13,7 +13,7 @@ CFLAGS="-std=c11 -O2 -g3 -Wall -Wextra --target=riscv32 -ffreestanding -nostdlib
 # -nostdlib:      リンカスクリプトを使用してリンクするため、標準ライブラリを使用しない
 
 # カーネルをビルド
-$CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf kernel.c
+$CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf kernel.c common.c
 # -Wl: コンパイラではなくリンカにオプションを渡す
 # -Wl,-Tkernel.ld: リンカスクリプトを指定
 # -Wl,-Map=kernel.map: マップファイル（リンカによる配置結果）を出力
