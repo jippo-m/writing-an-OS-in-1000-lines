@@ -37,19 +37,14 @@ void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1 /* Console Putchar */);
 }
 
-void *memset(void *buf, char c, size_t n) {
-    uint8_t *p = (uint8_t *)buf;
-    while (n--) {
-        *p++ = c;
-    }
-    return buf;
-}
-
 void kernel_main() {
     // bss領域を0で初期化
     // ブートローダが.bss領域を認識してゼロクリアしてくれることもあるが、
     // その確証がないので自分で初期化するのが無難
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
+
+    PANIC("booted!");
+    printf("unreachable here!\n");
 
     const char *s = "\n\nHello, World!\n";
     for (int i = 0; s[i] != '\0'; i++) {
