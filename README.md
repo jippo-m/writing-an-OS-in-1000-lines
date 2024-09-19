@@ -1,7 +1,9 @@
 # Writing an OS in 1000 lines
 
 2024/9/15 ～
+
 https://operating-system-in-1000-lines.vercel.app/ja/welcome
+
 みかん本の前段階として一通りやってみる
 
 ## 機能
