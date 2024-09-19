@@ -8,7 +8,31 @@ void kernel_entry(void);
 
 // リンカスクリプト内で定義されるシンボルを宣言
 // シンボルのアドレスだけが必要なので適当にchar型にしている
-extern char __bss[], __bss_end[], __stack_top[];
+extern char __bss[], __bss_end[], __stack_top[], __free_ram[], __free_ram_end[];
+
+// nページ分のメモリを動的に割り当てて、その先頭アドレスを返す
+// BumpアロケータやLinearアロケータと呼ばれる割り当てアルゴリズム。
+// 解法処理が必要ない場面で実際に使われている
+paddr_t alloc_pages(uint32_t n) {
+    // next_paddrは関数呼び出し間で値が保持される。
+    // 次に割り当てられる領域（空いている領域）の先頭アドレスを指す。
+    // 初期値は__free_ramのアドレス（__free_ram）から順にメモリを割り当てていく
+    static paddr_t next_paddr = (paddr_t) __free_ram;
+    paddr_t paddr = next_paddr;
+    next_paddr += PAGE_SIZE * n;
+    
+    // malloc()がNULLを返すのと同じように0を返すこともできるが、
+    // 今回はわかりやすさのためパニックさせる
+    if (next_paddr > (paddr_t) __free_ram_end)
+        PANIC("out of memory");
+
+    // 割り当てたメモリをゼロクリア
+    memset((void *) paddr, 0, PAGE_SIZE * n);
+
+    // __free_ramはリンカスクリプトのALIGN(4096)により4KB境界に配置される
+    // つまりalloc_pages関数も必ず4KBでアラインされたアドレスを返す
+    return paddr;
+}
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid,  long eid) {
@@ -44,7 +68,14 @@ void kernel_main() {
     // その確証がないので自分で初期化するのが無難
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
-    // PANIC("booted!");
+    paddr_t paddr0 = alloc_pages(2);
+    paddr_t paddr1 = alloc_pages(1);
+    printf("alloc_pages test: paddr0 = %x\n", paddr0);
+    printf("alloc_pages test: paddr1 = %x\n", paddr1);
+    // alloc_pages test: paddr0 = 80221000
+    // alloc_pages test: paddr1 = 80223000
+
+    PANIC("booted!");
     // printf("unreachable here!\n");
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
     __asm__ __volatile__("unimp"); // 無効な命令
