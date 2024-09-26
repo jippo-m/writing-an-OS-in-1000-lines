@@ -1,6 +1,21 @@
 #pragma once
 #include "common.h"
 
+#define PROCS_MAX 8     // 最大プロセス数
+#define PROC_UNUSED 0   // 未使用のプロセス管理構造体
+#define PROC_RUNNABLE 1 // 実行可能なプロセス
+
+// プロセス管理構造体(PCB, Process Control Block)
+struct process {
+    int pid;
+    int state;
+    vaddr_t sp;          // コンテキストスイッチ時のスタックポインタ
+    // カーネルスタックをプロセスごとに用意することで、
+    // 別の実行コンテキストを持ち、コンテキストスイッチで状態の保存と復元が可能になる。
+    // カーネルスタックをCPUごとに1つだけ使う「シングルカーネルスタック」という方式もある。
+    uint8_t stack[8192];
+};
+
 struct trap_frame {
     uint32_t ra;
     uint32_t sp;

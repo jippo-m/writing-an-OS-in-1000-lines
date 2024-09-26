@@ -34,6 +34,123 @@ paddr_t alloc_pages(uint32_t n) {
     return paddr;
 }
 
+
+struct process procs[PROCS_MAX];
+
+// エナガ本 p42
+// prev_sp: a0レジスタ、next_sp: a1レジスタ
+__attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t next_sp) {
+    __asm__ __volatile__(
+        // callee-savedレジスタをスタックに保存
+        "addi sp, sp, -13 * 4\n"
+        "sw ra,  4 * 0(sp)\n" // 戻り先アドレス（この関数の呼び出し元）
+        "sw s0,  4 * 1(sp)\n"
+        "sw s1,  4 * 2(sp)\n"
+        "sw s2,  4 * 3(sp)\n"
+        "sw s3,  4 * 4(sp)\n"
+        "sw s4,  4 * 5(sp)\n"
+        "sw s5,  4 * 6(sp)\n"
+        "sw s6,  4 * 7(sp)\n"
+        "sw s7,  4 * 8(sp)\n"
+        "sw s8,  4 * 9(sp)\n"
+        "sw s9,  4 * 10(sp)\n"
+        "sw s10, 4 * 11(sp)\n"
+        "sw s11, 4 * 12(sp)\n"
+
+        "sw sp,  (a0)\n" // 実行中のプロセスのスタックポインタを保存
+        "lw sp,  (a1)\n" // 次に実行するプロセスのスタックポインタを復元
+
+        // callee-savedレジスタをスタックから復元
+        "lw ra,  4 * 0(sp)\n" // 戻り先アドレス（この関数の呼び出し元）
+        "lw s0,  4 * 1(sp)\n"
+        "lw s1,  4 * 2(sp)\n"
+        "lw s2,  4 * 3(sp)\n"
+        "lw s3,  4 * 4(sp)\n"
+        "lw s4,  4 * 5(sp)\n"
+        "lw s5,  4 * 6(sp)\n"
+        "lw s6,  4 * 7(sp)\n"
+        "lw s7,  4 * 8(sp)\n"
+        "lw s8,  4 * 9(sp)\n"
+        "lw s9,  4 * 10(sp)\n"
+        "lw s10, 4 * 11(sp)\n"
+        "lw s11, 4 * 12(sp)\n"
+        "addi sp, sp, 13 * 4\n"
+        "ret\n"
+    );
+}
+
+// プロセスの初期化処理
+struct process *create_process(uint32_t pc) {
+    // 空いているプロセス管理構造体を探す
+    struct process *proc = NULL;
+    int i;
+    for (i = 0; i < PROCS_MAX; i++) {
+        if (procs[i].state == PROC_UNUSED) {
+            proc = &procs[i];
+            break;
+        }
+    }
+
+    if (!proc) PANIC("no free process slots");
+
+    // switch_context()で府㏍できるように、スタックにcallee-savedレジスタの値を積む
+    uint32_t *sp = (uint32_t *) &proc->stack[sizeof(proc->stack)];
+    // --sp; *sp = 0; を一気にやると *--sp = 0; という表記になる
+    *--sp = 0;                      // s11
+    *--sp = 0;                      // s10
+    *--sp = 0;                      // s9
+    *--sp = 0;                      // s8
+    *--sp = 0;                      // s7
+    *--sp = 0;                      // s6
+    *--sp = 0;                      // s5
+    *--sp = 0;                      // s4
+    *--sp = 0;                      // s3
+    *--sp = 0;                      // s2
+    *--sp = 0;                      // s1
+    *--sp = 0;                      // s0
+    *--sp = (uint32_t) pc;          // ra
+
+    // 各フィールドを初期化
+    proc->pid = i + 1;
+    proc->state = PROC_RUNNABLE;
+    proc->sp = (uint32_t) sp;
+    return proc;
+}
+
+struct process *current_proc;
+struct process *idle_proc;
+
+// yieldには「譲る」という意味もある。
+//「CPU時間という資源を譲る」という意味合いで、プロセスが自発的に呼び出すAPIの名前としてよく使われる
+void yield(void) {
+    // 実行可能なプロセスを探す
+    struct process *next_proc = idle_proc;
+    for (int i = 0; i < PROCS_MAX; i++) {
+        struct process *proc = &procs[(current_proc->pid + i) % PROCS_MAX];
+        if (proc->state == PROC_RUNNABLE && proc->pid > 0) {
+            next_proc = proc;
+            break;
+        } 
+    }
+
+    // 実行可能なプロセスが見つからなかった場合は戻って処理を実行する
+    if (next_proc == current_proc) return;
+
+    // プロセス切り替え時にsscratchレジスタへ、
+    // 実行中プロセスのカーネルスタックの初期値を設定
+    __asm__ __volatile__(
+        "csrw sscratch, %[sscratch]\n"
+        :
+        // スタックポインタは下位アドレスの方向に伸びる
+        : [sscratch] "r" ((uint32_t) &next_proc->stack[sizeof(next_proc->stack)])
+    );
+
+    // コンテキストスイッチ
+    struct process *prev = current_proc;
+    current_proc = next_proc;
+    switch_context(&prev->sp, &next_proc->sp);
+}
+
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid,  long eid) {
     // 指定したレジスタに値を入れるようにコンパイラに指示
@@ -62,11 +179,53 @@ void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1 /* Console Putchar */);
 }
 
+
+struct process *proc_a;
+struct process *proc_b;
+void proc_a_entry(void) {
+    printf("starting process A\n");
+    while (1) {
+        putchar('A');
+        //switch_context(&proc_a->sp, &proc_b->sp);
+        yield();
+
+        for (int i = 0; i < 10000000; i++) {
+            __asm__ __volatile__("nop");
+        }
+    }
+}
+
+void proc_b_entry(void) {
+    printf("starting process B\n");
+    while (1) {
+        putchar('B');
+        //switch_context(&proc_b->sp, &proc_a->sp);
+        yield();
+
+        for (int i = 0; i < 30000000; i++) {
+            __asm__ __volatile__("nop");
+        }
+    }
+}
+
 void kernel_main() {
     // bss領域を0で初期化
     // ブートローダが.bss領域を認識してゼロクリアしてくれることもあるが、
     // その確証がないので自分で初期化するのが無難
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
+    printf("\n\n");
+
+    // 実行可能なプロセスが無い時に実行するプロセス
+    idle_proc = create_process((uint32_t) NULL);
+    idle_proc->pid = -1;
+    current_proc = idle_proc;
+
+    // コンテキストスイッチのテスト
+    proc_a = create_process((uint32_t) proc_a_entry);
+    proc_b = create_process((uint32_t) proc_b_entry);
+    //proc_a_entry();
+    yield();
+    PANIC("switched to idle process");
 
     paddr_t paddr0 = alloc_pages(2);
     paddr_t paddr1 = alloc_pages(1);
@@ -102,7 +261,11 @@ __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
         // sscratchレジスタに例外発生時のspを保存
-        "csrw sscratch, sp\n"
+        //"csrw sscratch, sp\n"
+        // 実行中プロセスのカーネルスタックをsscratchから取り出す
+        // "tmp = sp; sp = sscratch; sscratch = tmp;"
+        "csrrw sp, sscratch, sp\n"
+
         "addi sp, sp, -4 * 31\n"
         "sw ra, 4 * 0(sp)\n"
         "sw gp, 4 * 1(sp)\n"
